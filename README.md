@@ -1,31 +1,29 @@
 # Whisper Wayland
 
-STT using Groq.
+Voice-to-text dictation for my Wayland setup using Groq's Whisper API.
+(Highly specific to Nika's setup with keyd)
 
 ## Setup
 
 Install dependencies:
 ```bash
-# Fedora
-sudo dnf install pipewire-utils curl jq wtype
-
-# Ubuntu/Debian
-sudo apt install pipewire curl jq wtype
-
-# Arch
-sudo pacman -S pipewire curl jq wtype
+sudo dnf install pipewire-utils curl jq ydotool
 ```
 
-Add [Groq API key](https://console.groq.com/) to `~/.env`:
+Add Groq API key to `~/.env`:
 ```bash
-echo "GROQ_API_KEY=your_key_here" > ~/.env
+echo "GROQ_API_KEY=gsk_..." >> ~/.env
 ```
+
+Bind to `dictate.sh` to hotkey in your favorite compositor (Niri).
 
 ## Usage
 
-```bash
-chmod +x dictate.sh
-./dictate.sh
-```
+- Press keybind → starts recording
+- Press again → transcribes and types text
 
-Press `Ctrl+C` to stop recording.
+## Notes
+
+- Uses `ydotool` for typing (toggles keyd Rightalt layer for QWERTY)
+- Audio: 16kHz mono via `pw-record`
+- Model: `whisper-large-v3-turbo`
