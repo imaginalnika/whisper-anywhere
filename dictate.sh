@@ -1,13 +1,21 @@
 #!/bin/bash
 
+# TODO:
+# - App-awareness
+# - Take current context in (via select all)
+# - Enhance via llm and system prompt (with faster stt)
+# - Command mode
+# - Command mode in highlighted region
+# - Fix leading single whitespace
+# - Add visual indicator to Niri top bar
+
 # Load environment variables from .env
 if [ -f "$HOME/.env" ]; then
   source "$HOME/.env"
 fi
 
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-LOCK_FILE="/tmp/whisper-wayland.lock"
-PID_FILE="/tmp/whisper-wayland.pid"
+LOCK_FILE="/tmp/chung.lock"
+PID_FILE="/tmp/chung.pid"
 
 # Check if already recording
 if [ -f "$LOCK_FILE" ]; then
@@ -38,19 +46,13 @@ if [ -f "$LOCK_FILE" ]; then
   ydotool key 100:1 100:0  # Press Rightalt again to toggle back
 
   rm -f "$AUDIO_FILE"
-
-  # Send notification that transcription is complete
-  notify-send "Whisper" "Transcription complete" 2>/dev/null || true
 else
   # Start recording
-  AUDIO_FILE="/tmp/whisper-recording-$$.wav"
+  AUDIO_FILE="/tmp/chung-recording-$$.wav"
 
   echo "$AUDIO_FILE" > "$LOCK_FILE"
 
   pw-record --channels=1 --rate=16000 "$AUDIO_FILE" &
   RECORD_PID=$!
   echo "$RECORD_PID" > "$PID_FILE"
-
-  # Send notification that recording started
-  notify-send -u critical "🎤 RECORDING" "Press keybind again to stop" 2>/dev/null || true
 fi
