@@ -14,45 +14,51 @@ if [ -f "$HOME/.env" ]; then
   source "$HOME/.env"
 fi
 
-LOCK_FILE="/tmp/chung.lock"
-PID_FILE="/tmp/chung.pid"
+RECORDING="/tmp/chung.wav"
+LOGFILE="/tmp/chung.log"
+RIGHTALT="100:1 100:0"  # Right alt toggles keyd layer
 
-# Check if already recording
-if [ -f "$LOCK_FILE" ]; then
-  # Stop recording
-  if [ -f "$PID_FILE" ]; then
-    RECORD_PID=$(cat "$PID_FILE")
-    kill "$RECORD_PID" 2>/dev/null || true
-    rm -f "$PID_FILE"
-  fi
+trim() {
+  echo "$1" | sed 's/^[[:space:]]*//'
+}
 
-  # Wait a moment for the file to finalize
-  sleep 0.2
+paste() {
+  ydotool key $RIGHTALT
+  printf '%s' "$1" | ydotool type --file - --key-delay 0
+  ydotool key $RIGHTALT
+}
 
-  AUDIO_FILE=$(cat "$LOCK_FILE")
-  rm -f "$LOCK_FILE"
+transcribe() {
+  local system_prompt="$1"
 
-  # Transcribe with Groq Whisper API
-  TRANSCRIPTION=$(curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" \
+  curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" \
     -H "Authorization: Bearer $GROQ_API_KEY" \
     -H "Content-Type: multipart/form-data" \
-    -F "file=@$AUDIO_FILE" \
+    -F "file=@$RECORDING" \
     -F "model=whisper-large-v3-turbo" \
-    | jq -r '.text')
+    -F "prompt=$system_prompt" \
+    | jq -r '.text'
+}
 
-  # Type the transcription using ydotool (toggle keyd to normal QWERTY layer with Rightalt)
-  ydotool key 100:1 100:0  # Press Rightalt to toggle to tweaks layer
-  printf '%s' "$TRANSCRIPTION" | ydotool type --file - --key-delay 0
-  ydotool key 100:1 100:0  # Press Rightalt again to toggle back
+# Main
 
-  rm -f "$AUDIO_FILE"
+# Check if pw-record is running
+if pgrep -f "pw-record.*$RECORDING" > /dev/null; then
+  # Killing the process flushes to file
+  pkill -f "pw-record.*$RECORDING"; sleep 0.2 # Buffer for flush
+
+  SYSTEM_PROMPT=""
+  TRANSCRIPTION=$(trim "$(transcribe "$SYSTEM_PROMPT")")
+
+  echo "=== Transcription Debug ===" >> "$LOGFILE"
+  echo "Raw transcription: [$TRANSCRIPTION]" >> "$LOGFILE"
+  echo "Length: ${#TRANSCRIPTION}" >> "$LOGFILE"
+
+  paste "$TRANSCRIPTION"
+
+  rm -f "$RECORDING"
 else
-  # Start recording
-  AUDIO_FILE="/tmp/chung-recording-$$.wav"
-
-  echo "$AUDIO_FILE" > "$LOCK_FILE"
-
-  pw-record --channels=1 --rate=16000 "$AUDIO_FILE" &
-  RECORD_PID=$!
-  echo "$RECORD_PID" > "$PID_FILE"
+  # No recording running, so start
+  TIMEOUT=60 # seconds
+  timeout $TIMEOUT pw-record --channels=1 --rate=16000 "$RECORDING"
 fi

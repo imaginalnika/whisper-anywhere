@@ -1,0 +1,11 @@
+[project]
+name = "chung"
+version = "1.0.0"
+description = "Voice-to-text dictation tool for Wayland/Niri"
+requires-python = ">=3.8"
+dependencies = [
+    "faster-whisper>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = []
