@@ -1,13 +1,6 @@
 #!/bin/bash
 
-# TODO:
-# - App-awareness
-# - Take current context in (via select all)
-# - Enhance via llm and system prompt (with faster stt)
-# - Command mode
-# - Command mode in highlighted region
-# - Fix leading single whitespace
-# - Add visual indicator to Niri top bar
+# sudo dnf install -y pipewire pipewire-utils ydotool jq curl
 
 # Load environment variables from .env
 if [ -f "$HOME/.env" ]; then
