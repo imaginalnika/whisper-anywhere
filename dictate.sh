@@ -7,7 +7,7 @@
 # - Elegant processing message at the cursor
 
 # Configuration:
-# - REQUIRED_DURATION_FOR_ENHANCEMENT (threshold for enhancement)
+# - LONG_RECORDING_THRESHOLD (threshold for using large model + enhancement)
 # - TRANSCRIPTION_PROMPT (context for Whisper)
 # - ENHANCEMENT_PROMPT (instructions for Haiku)
 
@@ -22,9 +22,9 @@ fi
 RECORDING="/tmp/chung.wav"
 LOGFILE="/tmp/chung.log"
 PROCESS_PATTERN="pw-record.*$RECORDING"
-REQUIRED_DURATION_FOR_ENHANCEMENT=8 # s
+LONG_RECORDING_THRESHOLD=10 # s
 TRANSCRIPTION_PROMPT="Programming dictation with terms like left paren, right paren, left bracket, right bracket."
-ENHANCEMENT_PROMPT="You are a text processor in a voice dictation pipeline. Your job is to clean up transcribed speech: convert spoken code to symbols ('left paren' → '(', 'dot' → '.', etc.), fix grammar and formatting. Return ONLY the corrected text on a single line with no added newlines, no markdown formatting (no bold, italics, code blocks), no asterisks, no extra punctuation. DO NOT respond like chat."
+ENHANCEMENT_PROMPT="You are a text processor in a voice dictation pipeline. Your job is to clean up transcribed speech: convert spoken code to symbols ('left paren' → '(', 'dot' → '.', etc.), fix grammar and formatting. Return ONLY the corrected text on a single line with no added newlines, no markdown formatting (no bold, italics, code blocks), no asterisks, no extra punctuation. Some keywords: clojure, emacs, vim, EdgeQL. DO NOT respond like chat."
 
 paste() {
   # rightalt is specific to my setup with dvorak and keyd
@@ -62,14 +62,17 @@ transcribe() {
   local recording="$1"
   local logging_start=$(date +%s%N)
 
-  # Transcription always returns a leading space, so remove it
+  # Use large model for longer recordings, turbo for short ones
+  local is_long_recording=$(echo "$(get_duration "$recording") > $LONG_RECORDING_THRESHOLD" | bc -l)
+  local model=$([[ $is_long_recording -eq 1 ]] && echo "whisper-large-v3" || echo "whisper-large-v3-turbo")
+
   local transcription=$(curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" \
     -H "Authorization: Bearer $GROQ_API_KEY" \
     -H "Content-Type: multipart/form-data" \
     -F "file=@$recording" \
-    -F "model=whisper-large-v3-turbo" \
+    -F "model=$model" \
     -F "prompt=$TRANSCRIPTION_PROMPT" \
-    | jq -r '.text' | sed 's/^ //')
+    | jq -r '.text' | sed 's/^ //') # Transcription always returns a leading space, so remove it via sed
 
   logging_end_and_write_to_logfile "Transcription" "$transcription" "$logging_start"
 
@@ -110,8 +113,8 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   TRANSCRIPTION=$(transcribe "$RECORDING")
   delete_n_chars 17 # "(transcribing...)"
 
-  DURATION=$(get_duration "$RECORDING")
-  if (( $(echo "$DURATION > $REQUIRED_DURATION_FOR_ENHANCEMENT" | bc -l) )); then
+  # Enhance longer recordings
+  if (( $(echo "$(get_duration "$RECORDING") > $LONG_RECORDING_THRESHOLD" | bc -l) )); then
     paste "(enhancing...)"
     ENHANCED=$(enhance "$TRANSCRIPTION")
     delete_n_chars 15 # "(enhancing...)"
