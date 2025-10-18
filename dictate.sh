@@ -1,9 +1,20 @@
 #!/bin/bash
 
-# sudo dnf install -y pipewire pipewire-utils ydotool jq curl
-# also follow instructions on https://git.sr.ht/~geb/dotool
+# Chung v1.0
+# A dictation script that writes to the cursor.
+# - Transcription via Groq Whisper
+# - Enhancement via Anthropic Haiku 4.5 (for longer recordings)
+# - Elegant processing message at the cursor
 
-# Load environment variables from .env
+# Configuration:
+# - REQUIRED_DURATION_FOR_ENHANCEMENT (threshold for enhancement)
+# - TRANSCRIPTION_PROMPT (context for Whisper)
+# - ENHANCEMENT_PROMPT (instructions for Haiku)
+
+# Requirements (Fedora):
+# - sudo dnf install -y pipewire pipewire-utils ydotool jq curl ffmpeg
+# - dotool: https://git.sr.ht/~geb/dotool (run dotoold)
+
 if [ -f "$HOME/.env" ]; then
   source "$HOME/.env"
 fi
@@ -11,81 +22,81 @@ fi
 RECORDING="/tmp/chung.wav"
 LOGFILE="/tmp/chung.log"
 PROCESS_PATTERN="pw-record.*$RECORDING"
+REQUIRED_DURATION_FOR_ENHANCEMENT=8 # s
+TRANSCRIPTION_PROMPT="Programming dictation with terms like left paren, right paren, left bracket, right bracket."
+ENHANCEMENT_PROMPT="You are a text processor in a voice dictation pipeline. Your job is to clean up transcribed speech: convert spoken code to symbols ('left paren' → '(', 'dot' → '.', etc.), fix grammar and formatting. Return ONLY the corrected text on a single line with no added newlines, no markdown formatting (no bold, italics, code blocks), no asterisks, no extra punctuation. DO NOT respond like chat."
 
 paste() {
   # rightalt is specific to my setup with dvorak and keyd
-  echo key rightalt | dotool
-  echo type "$1" | dotool
-  echo key rightalt | dotool
+  echo key rightalt | dotoolc
+  echo type "$1" | dotoolc
+  echo key rightalt | dotoolc
+}
+
+delete_n_chars() {
+  local n="$1"
+  for ((i=0; i<n; i++)); do
+    echo key backspace | dotoolc
+  done
+}
+
+get_duration() {
+  local recording="$1"
+  ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$recording" 2>/dev/null || echo "0"
+}
+
+logging_end_and_write_to_logfile() {
+  local title="$1"
+  local result="$2"
+  local logging_start="$3"
+
+  local logging_end=$(date +%s%N)
+  local time=$(echo "scale=3; ($logging_end - $logging_start) / 1000000000" | bc)
+
+  echo "=== $title ===" >> "$LOGFILE"
+  echo "Result: [$result]" >> "$LOGFILE"
+  echo "Time: ${time}s" >> "$LOGFILE"
 }
 
 transcribe() {
   local recording="$1"
-  local start=$(date +%s%N)
+  local logging_start=$(date +%s%N)
 
   # Transcription always returns a leading space, so remove it
-  local result=$(curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" \
+  local transcription=$(curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" \
     -H "Authorization: Bearer $GROQ_API_KEY" \
     -H "Content-Type: multipart/form-data" \
     -F "file=@$recording" \
     -F "model=whisper-large-v3-turbo" \
-    -F "prompt=Programming dictation with terms like left paren, right paren, left bracket, right bracket." \
+    -F "prompt=$TRANSCRIPTION_PROMPT" \
     | jq -r '.text' | sed 's/^ //')
 
-  local end=$(date +%s%N)
-  local time=$(echo "scale=3; ($end - $start) / 1000000000" | bc)
+  logging_end_and_write_to_logfile "Transcription" "$transcription" "$logging_start"
 
-  # If transcription took less than 0.2 seconds, likely too short
-  if (( $(echo "$time < 0.2" | bc -l) )); then
-    echo "=== Transcription ===" >> "$LOGFILE"
-    echo "Result: [$result] (rejected: too short)" >> "$LOGFILE"
-    echo "Time: ${time}s" >> "$LOGFILE"
-    echo ""
-    return
-  fi
-
-  echo "=== Transcription ===" >> "$LOGFILE"
-  echo "Result: [$result]" >> "$LOGFILE"
-  echo "Time: ${time}s" >> "$LOGFILE"
-
-  echo "$result"
+  echo "$transcription"
 }
 
 enhance() {
   local text="$1"
+  local logging_start=$(date +%s%N)
 
-  # If input is empty, return empty
-  if [ -z "$text" ]; then
-    echo "=== Enhancement ===" >> "$LOGFILE"
-    echo "Result: (skipped: empty input)" >> "$LOGFILE"
-    echo ""
-    return
-  fi
-
-  local start=$(date +%s%N)
-
-  local result=$(curl -s -X POST "https://api.anthropic.com/v1/messages" \
+  local enhanced=$(curl -s -X POST "https://api.anthropic.com/v1/messages" \
     -H "x-api-key: $ANTHROPIC_API_KEY" \
     -H "anthropic-version: 2023-06-01" \
     -H "content-type: application/json" \
     -d "{
       \"model\": \"claude-haiku-4-5-20251001\",
       \"max_tokens\": 1024,
-      \"system\": \"You are a programming assistant processing voice dictation. Understand the user's intent and convert spoken code to proper syntax. Common patterns: 'left/right paren/bracket/brace' become their symbols, 'dot' becomes '.', 'equals' becomes '=', etc. Fix grammar, formatting, and make the output natural for the context (code, commands, or prose). Be flexible in interpretation. Return only the corrected text.\",
+      \"system\": \"$ENHANCEMENT_PROMPT\",
       \"messages\": [{
         \"role\": \"user\",
-        \"content\": \"$text\"
+        \"content\": \"$text\\n\\nCorrect the above.\"
       }]
     }" | jq -r '.content[0].text')
 
-  local end=$(date +%s%N)
-  local time=$(echo "scale=3; ($end - $start) / 1000000000" | bc)
+  logging_end_and_write_to_logfile "Enhancement" "$enhanced" "$logging_start"
 
-  echo "=== Enhancement ===" >> "$LOGFILE"
-  echo "Result: [$result]" >> "$LOGFILE"
-  echo "Time: ${time}s" >> "$LOGFILE"
-
-  echo "$result"
+  echo "$enhanced"
 }
 
 # Main
@@ -93,11 +104,26 @@ enhance() {
 # Find recording process, if so then kill
 if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   pkill -f "$PROCESS_PATTERN"; sleep 0.2 # Buffer for flush
+  delete_n_chars 14 # "(recording...)"
 
-  paste "$(enhance "$(transcribe "$RECORDING")")"
+  paste "(transcribing...)"
+  TRANSCRIPTION=$(transcribe "$RECORDING")
+  delete_n_chars 17 # "(transcribing...)"
+
+  DURATION=$(get_duration "$RECORDING")
+  if (( $(echo "$DURATION > $REQUIRED_DURATION_FOR_ENHANCEMENT" | bc -l) )); then
+    paste "(enhancing...)"
+    ENHANCED=$(enhance "$TRANSCRIPTION")
+    delete_n_chars 15 # "(enhancing...)"
+    paste "$ENHANCED"
+  else
+    paste "$TRANSCRIPTION"
+  fi
 
   rm -f "$RECORDING"
 else
   # No recording running, so start
+  sleep 0.3
+  paste "(recording...)"
   pw-record --channels=1 --rate=16000 "$RECORDING"
 fi
