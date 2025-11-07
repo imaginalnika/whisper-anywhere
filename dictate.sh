@@ -1,42 +1,67 @@
 #!/bin/bash
 
-# Chung v1.0
-# A dictation script that writes to the cursor.
+# yell v1.0
+# Dictate anywhere in Linux. Transcription at your cursor.
 # - Transcription via Groq Whisper
-# - Enhancement via Anthropic Haiku 4.5 (for longer recordings)
-# - Elegant processing message at the cursor
 
 # Configuration:
-# - LONG_RECORDING_THRESHOLD (threshold for using large model + enhancement)
+# - LONG_RECORDING_THRESHOLD (threshold for using large vs turbo model)
 # - TRANSCRIPTION_PROMPT (context for Whisper)
-# - ENHANCEMENT_PROMPT (instructions for Haiku)
 
-# Requirements (Fedora):
-# - sudo dnf install -y pipewire pipewire-utils ydotool jq curl ffmpeg
-# - dotool: https://git.sr.ht/~geb/dotool (run dotoold)
+# Requirements:
+# - pipewire, pipewire-utils (audio)
+# - wl-clipboard (Wayland) or xclip (X11) for clipboard
+# - jq, curl, ffmpeg (processing)
+# - gcc to build paste-key (run ./build.sh)
 
-if [ -f "$HOME/.env" ]; then
-  source "$HOME/.env"
+[ -f "$HOME/.env" ] && source "$HOME/.env"
+
+RECORDING="/tmp/yell.wav"
+LOGFILE="/tmp/yell.log"
+PROCESS_PATTERN="pw-record.*$RECORDING"
+LONG_RECORDING_THRESHOLD=1000 # s
+TRANSCRIPTION_PROMPT="Programming terms. Often used words: Clojure, Claude, LLM, Emacs, Electric Clojure."
+
+# Get script directory for binaries
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PASTE="$SCRIPT_DIR/paste"
+TYPER="$SCRIPT_DIR/typer"
+
+# Detect clipboard tool
+if command -v wl-copy &> /dev/null; then
+    CLIP_COPY="wl-copy"
+    CLIP_PASTE="wl-paste"
+elif command -v xclip &> /dev/null; then
+    CLIP_COPY() { xclip -selection clipboard; }
+    CLIP_PASTE() { xclip -o -selection clipboard; }
+else
+    echo "Error: No clipboard tool found. Install wl-clipboard or xclip." >&2
+    exit 1
 fi
 
-RECORDING="/tmp/chung.wav"
-LOGFILE="/tmp/chung.log"
-PROCESS_PATTERN="pw-record.*$RECORDING"
-LONG_RECORDING_THRESHOLD=10 # s
-TRANSCRIPTION_PROMPT="Programming dictation with terms like left paren, right paren, left bracket, right bracket."
-ENHANCEMENT_PROMPT="You are a text processor in a voice dictation pipeline. Your job is to clean up transcribed speech: convert spoken code to symbols ('left paren' → '(', 'dot' → '.', etc.), fix grammar and formatting. Return ONLY the corrected text on a single line with no added newlines, no markdown formatting (no bold, italics, code blocks), no asterisks, no extra punctuation. Some keywords: clojure, emacs, vim, EdgeQL. DO NOT respond like chat."
-
 paste() {
-  # rightalt is specific to my setup with dvorak and keyd
-  echo key rightalt | dotoolc
-  echo type "$1" | dotoolc
-  echo key rightalt | dotoolc
+  local text="$1"
+  # Type character by character
+  # Use typer for ASCII (32-126), clipboard+paste for Unicode
+  for ((i=0; i<${#text}; i++)); do
+    local char="${text:$i:1}"
+    local ascii=$(printf '%d' "'$char")
+
+    if [[ $ascii -ge 32 && $ascii -le 126 ]]; then
+      # ASCII printable character - use direct key typing (faster)
+      "$TYPER" "$char"
+    else
+      # Unicode or special character - use clipboard
+      echo -n "$char" | $CLIP_COPY
+      "$PASTE"
+    fi
+  done
 }
 
 delete_n_chars() {
   local n="$1"
   for ((i=0; i<n; i++)); do
-    echo key backspace | dotoolc
+    "$TYPER" backspace
   done
 }
 
@@ -79,29 +104,6 @@ transcribe() {
   echo "$transcription"
 }
 
-enhance() {
-  local text="$1"
-  local logging_start=$(date +%s%N)
-
-  local enhanced=$(curl -s -X POST "https://api.anthropic.com/v1/messages" \
-    -H "x-api-key: $ANTHROPIC_API_KEY" \
-    -H "anthropic-version: 2023-06-01" \
-    -H "content-type: application/json" \
-    -d "{
-      \"model\": \"claude-haiku-4-5-20251001\",
-      \"max_tokens\": 1024,
-      \"system\": \"$ENHANCEMENT_PROMPT\",
-      \"messages\": [{
-        \"role\": \"user\",
-        \"content\": \"$text\\n\\nCorrect the above.\"
-      }]
-    }" | jq -r '.content[0].text')
-
-  logging_end_and_write_to_logfile "Enhancement" "$enhanced" "$logging_start"
-
-  echo "$enhanced"
-}
-
 # Main
 
 # Find recording process, if so then kill
@@ -113,20 +115,12 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   TRANSCRIPTION=$(transcribe "$RECORDING")
   delete_n_chars 17 # "(transcribing...)"
 
-  # Enhance longer recordings
-  if (( $(echo "$(get_duration "$RECORDING") > $LONG_RECORDING_THRESHOLD" | bc -l) )); then
-    paste "(enhancing...)"
-    ENHANCED=$(enhance "$TRANSCRIPTION")
-    delete_n_chars 15 # "(enhancing...)"
-    paste "$ENHANCED"
-  else
-    paste "$TRANSCRIPTION"
-  fi
+  paste "$TRANSCRIPTION"
 
   rm -f "$RECORDING"
 else
   # No recording running, so start
-  sleep 0.3
+  sleep 0.2
   paste "(recording...)"
   pw-record --channels=1 --rate=16000 "$RECORDING"
 fi
