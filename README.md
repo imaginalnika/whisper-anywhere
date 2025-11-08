@@ -1,103 +1,80 @@
 <div align="center">
-  <h1>xhisper</h1>
-  <i>/ˈzɪspər/</i>
-  <br>
-  <b>Dictate anywhere in Linux. Transcription at your cursor.</b>
+  <h1>xhisper <i>/ˈzɪspər/</i></h1>
+  <b>dictate anywhere in Linux; transcribe at your cursor</b>
   <br><br>
 </div>
 
-## Features
+## One-liner
 
-- **Cursor Integration**: Transcription appears directly where you're typing
-- **Smart Model Selection**: Automatic model switching (turbo for short, large for long recordings)
-- **Minimal Interface**: Simple status messages at cursor: `(recording...)` → `(transcribing...)`
-- **Fast**: Groq Whisper API for near-instant transcription
-- **Lightweight**: Single bash script, ~90 lines
+Dead simple anywhere-dictation (like [WisprFlow](https://wisprflow.ai/)) for Linux.
 
----
+## Installation
 
-## How It Works
-
-1. Run the script to start recording: `(recording...)` appears at cursor
-2. Run again to stop and transcribe: switches to `(transcribing...)`
-3. Transcription replaces the status message at cursor
-
-The script uses `whisper-large-v3-turbo` for recordings under 1000s and `whisper-large-v3` for longer recordings.
-
----
-
-## Dependencies
-
-- `pipewire` and `pipewire-utils` (audio recording)
-- `wl-clipboard` (Wayland) or `xclip` (X11) (clipboard access)
-- `jq`, `curl`, `ffmpeg` (processing)
-- `gcc` (to build xhisper)
-- Groq API key (free tier available at [console.groq.com](https://console.groq.com))
+### Dependencies
 
 <details>
 <summary>Fedora / RHEL / AlmaLinux / Rocky</summary>
-<pre><code>sudo dnf install -y pipewire pipewire-utils wl-clipboard jq curl ffmpeg gcc</code></pre>
+<pre><code>sudo dnf install -y pipewire pipewire-utils jq curl ffmpeg gcc</code></pre>
 </details>
 
 <details>
 <summary>Arch Linux / Manjaro</summary>
-<pre><code>sudo pacman -S pipewire wl-clipboard jq curl ffmpeg gcc</code></pre>
+<pre><code>sudo pacman -S pipewire jq curl ffmpeg gcc</code></pre>
 </details>
 
 <details>
 <summary>Debian / Ubuntu / Linux Mint</summary>
 <pre><code>sudo apt update
-sudo apt install pipewire wl-clipboard jq curl ffmpeg gcc</code></pre>
+sudo apt install pipewire jq curl ffmpeg gcc</code></pre>
 </details>
 
 <details>
 <summary>Void Linux</summary>
 <pre><code>sudo xbps-install -S
-sudo xbps-install pipewire wl-clipboard jq curl ffmpeg gcc</code></pre>
+sudo xbps-install pipewire jq curl ffmpeg gcc</code></pre>
 </details>
 
 <details>
 <summary>OpenSUSE (Leap / Tumbleweed)</summary>
 <pre><code>sudo zypper refresh
-sudo zypper install pipewire wl-clipboard jq curl ffmpeg gcc</code></pre>
+sudo zypper install pipewire jq curl ffmpeg gcc</code></pre>
 </details>
 
-**Note for X11 users:** Replace `wl-clipboard` with `xclip` in the commands above.
+**Note:** `wl-clipboard` (Wayland) or `xclip` (X11) required but usually pre-installed.
 
-### User Permissions
+### Setup
 
-Your user must be in the `input` group to access `/dev/uinput`:
-
+1. **Add user to input group** to access `/dev/uinput`:
 ```sh
 sudo usermod -aG input $USER
 ```
+Then **log out and log back in** (restart is safer) for the group change to take effect.
 
-Then **log out and log back in** for the group change to take effect.
+Check by running:
 
----
-
-## Setup
-
-1. Get a Groq API key from [console.groq.com](https://console.groq.com)
-
-2. Add to `~/.env`:
 ```sh
-export GROQ_API_KEY="your_key_here"
+groups
 ```
 
-3. Clone the repository:
+You should see `input` in the output.
+
+2. **Get a Groq API key** from [console.groq.com](https://console.groq.com) (free tier available) and add to `~/.env`:
 ```sh
-git clone https://github.com/imaginalnika/xhisper.git
-cd xhisper
+GROQ_API_KEY=<your_API_key>
 ```
 
-4. Build and install:
+3. Clone the repository and install:
 ```sh
-make
+git clone --depth 1 https://github.com/imaginalnika/xhisper.git
+cd xhisper && make
 sudo make install
 ```
 
-5. Bind to a key (example with keyd):
+4. Bind `xhisper` binary to your favorite key:
+
+<details>
+<summary>keyd</summary>
+
 ```ini
 [main]
 capslock = layer(dictate)
@@ -105,6 +82,53 @@ capslock = layer(dictate)
 [dictate:C]
 d = macro(xhisper)
 ```
+</details>
+
+<details>
+<summary>sxhkd</summary>
+
+```
+super + d
+    xhisper
+```
+</details>
+
+<details>
+<summary>i3 / sway</summary>
+
+```
+bindsym $mod+d exec xhisper
+```
+</details>
+
+<details>
+<summary>Hyprland</summary>
+
+```
+bind = $mainMod, D, exec, xhisper
+```
+</details>
+
+---
+
+## Usage
+
+Simply run `xhisper` twice:
+- **First run**: Starts recording
+- **Second run**: Stops and transcribes
+
+The transcription will be typed at your cursor position.
+
+For non-QWERTY layouts, set up an input switch key to QWERTY (e.g. rightalt). Then instead of `xhisper`, bind your favorite key to:
+```sh
+xhisper --rightalt
+```
+
+**Available wrap keys:** `--leftalt`, `--rightalt`, `--leftctrl`, `--rightctrl`, `--leftshift`, `--rightshift`, `--super`
+
+Key chords (like ctrl-space) not available yet.
+
+The daemon (`xhispertoold`) auto-starts when needed.
 
 ---
 
@@ -117,49 +141,12 @@ Edit variables at the top of `xhisper`:
 | `LONG_RECORDING_THRESHOLD`   | `1000`  | Seconds threshold for large model (in seconds)   |
 | `TRANSCRIPTION_PROMPT`       | Custom  | Context words for better Whisper accuracy        |
 
-### Keyboard Layout Switching
+## Troubleshooting
 
-If you use a non-QWERTY layout (Dvorak, Colemak, etc.), xhisper needs to switch to QWERTY temporarily for proper key simulation. Use a wrap key option:
-
-```sh
-xhisper --rightalt     # Press Right Alt before/after typing
-xhisper --leftalt      # Press Left Alt before/after typing
-xhisper --super        # Press Super (Windows key) before/after typing
-```
-
-**Available wrap keys:** `--leftalt`, `--rightalt`, `--leftctrl`, `--rightctrl`, `--leftshift`, `--rightshift`, `--super`
-
-The wrap key is pressed before and after each paste operation, allowing you to configure your system to toggle keyboard layouts on that keypress.
-
----
-
-## Known Limitations
-
-**Terminal Applications**: The clipboard paste functionality uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V).
-
-**Workaround**: Remap Ctrl+V to paste in your terminal emulator's settings.
-
-**Note**: This limitation only affects international/Unicode characters. ASCII characters (a-z, A-Z, 0-9, punctuation) are typed directly and work in all applications including terminals.
-
----
-
-## Usage
-
-Simply run `xhisper` twice:
-- **First run**: Starts recording
-- **Second run**: Stops recording and transcribes
-
-The transcription will be typed at your cursor position.
-
-For non-QWERTY layouts, use a wrap key:
-```sh
-xhisper --rightalt
-```
-
-The daemon (`xhispertoold`) auto-starts when needed.
+**Terminal Applications**: The clipboard paste functionality uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V). Temporary workaround is to remap Ctrl+V to paste in your terminal emulator's settings. Note that *this limitation only affects international/Unicode characters*. ASCII characters (a-z, A-Z, 0-9, punctuation) are typed directly and work in all applications including terminals.
 
 ---
 
 <p align="center">
-  <em>Simple dictation for Linux</em>
+  <em>Low complexity dictation for Linux</em>
 </p>
