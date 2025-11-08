@@ -1,5 +1,7 @@
 <div align="center">
-  <h1>yell</h1>
+  <h1>xhisper</h1>
+  <i>/ˈzɪspər/</i>
+  <br>
   <b>Dictate anywhere in Linux. Transcription at your cursor.</b>
   <br><br>
 </div>
@@ -29,7 +31,7 @@ The script uses `whisper-large-v3-turbo` for recordings under 1000s and `whisper
 - `pipewire` and `pipewire-utils` (audio recording)
 - `wl-clipboard` (Wayland) or `xclip` (X11) (clipboard access)
 - `jq`, `curl`, `ffmpeg` (processing)
-- `gcc` (to build paste-key)
+- `gcc` (to build xhisper)
 - Groq API key (free tier available at [console.groq.com](https://console.groq.com))
 
 <details>
@@ -85,13 +87,14 @@ export GROQ_API_KEY="your_key_here"
 
 3. Clone the repository:
 ```sh
-git clone https://github.com/uint23/yell.git
-cd yell
+git clone https://github.com/imaginalnika/xhisper.git
+cd xhisper
 ```
 
-4. Build paste-key:
+4. Build and install:
 ```sh
-./build.sh
+make
+sudo make install
 ```
 
 5. Bind to a key (example with keyd):
@@ -100,29 +103,60 @@ cd yell
 capslock = layer(dictate)
 
 [dictate:C]
-d = macro(./path/to/dictate.sh)
+d = macro(xhisper)
 ```
 
 ---
 
 ## Configuration
 
-Edit variables at the top of `dictate.sh`:
+Edit variables at the top of `xhisper`:
 
 | Variable                     | Default | Description                                      |
 |------------------------------|---------|--------------------------------------------------|
 | `LONG_RECORDING_THRESHOLD`   | `1000`  | Seconds threshold for large model (in seconds)   |
 | `TRANSCRIPTION_PROMPT`       | Custom  | Context words for better Whisper accuracy        |
 
+### Keyboard Layout Switching
+
+If you use a non-QWERTY layout (Dvorak, Colemak, etc.), xhisper needs to switch to QWERTY temporarily for proper key simulation. Use a wrap key option:
+
+```sh
+xhisper --rightalt     # Press Right Alt before/after typing
+xhisper --leftalt      # Press Left Alt before/after typing
+xhisper --super        # Press Super (Windows key) before/after typing
+```
+
+**Available wrap keys:** `--leftalt`, `--rightalt`, `--leftctrl`, `--rightctrl`, `--leftshift`, `--rightshift`, `--super`
+
+The wrap key is pressed before and after each paste operation, allowing you to configure your system to toggle keyboard layouts on that keypress.
+
+---
+
+## Known Limitations
+
+**Terminal Applications**: The clipboard paste functionality uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V).
+
+**Workaround**: Remap Ctrl+V to paste in your terminal emulator's settings.
+
+**Note**: This limitation only affects international/Unicode characters. ASCII characters (a-z, A-Z, 0-9, punctuation) are typed directly and work in all applications including terminals.
+
 ---
 
 ## Usage
 
-Simply run the script twice:
+Simply run `xhisper` twice:
 - **First run**: Starts recording
 - **Second run**: Stops recording and transcribes
 
 The transcription will be typed at your cursor position.
+
+For non-QWERTY layouts, use a wrap key:
+```sh
+xhisper --rightalt
+```
+
+The daemon (`xhispertoold`) auto-starts when needed.
 
 ---
 
